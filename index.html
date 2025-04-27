@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>Pico Motor Controller</title>
+</head>
+<body>
+  <h1>Pico Motor Controller</h1>
+
+  <button id="connect">Connect to Pico</button>
+  <div style="margin-top: 20px;">
+    <button id="forward">Forward (F)</button>
+    <button id="reverse">Reverse (R)</button>
+    <button id="stop">Stop (S)</button>
+  </div>
+
+  <div id="log" style="white-space: pre-wrap; background: #000; color: #0f0; padding: 10px; margin-top: 20px; height: 300px; overflow-y: scroll;"></div>
+
+  <script>
+    let port;
+    let writer;
+
+    const connectButton = document.getElementById('connect');
+    const forwardButton = document.getElementById('forward');
+    const reverseButton = document.getElementById('reverse');
+    const stopButton = document.getElementById('stop');
+    const logDiv = document.getElementById('log');
+
+    connectButton.addEventListener('click', async () => {
+      try {
+        port = await navigator.serial.requestPort();
+        await port.open({ baudRate: 115200 });
+
+        const encoder = new TextEncoderStream();
+        const outputDone = encoder.readable.pipeTo(port.writable);
+        writer = encoder.writable.getWriter();
+
+        readLoop();
+        log("Connected!");
+      } catch (err) {
+        console.error('Connection failed:', err);
+      }
+    });
+
+    forwardButton.addEventListener('click', () => sendCommand('F'));
+    reverseButton.addEventListener('click', () => sendCommand('R'));
+    stopButton.addEventListener('click', () => sendCommand('S'));
+
+    async function sendCommand(cmd) {
+      if (!writer) {
+        log("Not connected yet!");
+        return;
+      }
+      await writer.write(cmd);
+      log("Sent: " + cmd);
+    }
+
+    async function readLoop() {
+      const decoder = new TextDecoderStream();
+      const inputDone = port.readable.pipeTo(decoder.writable);
+      const reader = decoder.readable.getReader();
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) {
+          break;
+        }
+        if (value) {
+          log(value);
+        }
+      }
+    }
+
+    function log(text) {
+      logDiv.textContent += text + "\n";
+      logDiv.scrollTop = logDiv.scrollHeight;
+    }
+  </script>
+</body>
+</html>
