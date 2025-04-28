@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ギター音検出サンプル</title>
+    <link rel="stylesheet" href="https://code.getmdl.io/1.3.0/material.indigo-pink.min.css">
+    <script defer src="https://code.getmdl.io/1.3.0/material.min.js"></script>
+    <style>
+        body {
+            padding: 20px;
+            max-width: 600px;
+            margin: auto;
+            background: #f0f4f8;
+            font-family: 'Roboto', sans-serif;
+        }
+
+        canvas {
+            border: 1px solid #ccc;
+            background: #fff;
+            margin-top: 20px;
+            width: 100%;
+        }
+
+        #tunerDisplay {
+            font-size: 48px;
+            text-align: center;
+            margin: 20px 0;
+        }
+
+        #volumeDisplay {
+            text-align: center;
+            margin: 10px 0;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+
+<body>
+    <h3 class="mdl-typography--display-1">ギターの音をリアルタイム検出</h3>
+    <div class="control-group">
+        <select id="micSelect" class="mdl-textfield__input"></select>
+        <button id="startButton"
+            class="mdl-button mdl-js-button mdl-button--raised mdl-button--colored">マイク入力開始</button>
+        <button id="connectButton" class="mdl-button mdl-js-button mdl-button--raised">オートチューナー接続</button>
+    </div>
+    <div id="tunerDisplay">-</div>
+    <div id="volumeDisplay">音量: -</div>
+    <canvas id="oscilloscope" width="600" height="300"></canvas>
+
+    <!-- 以下はスクリプト部分 (変更なし) -->
+    <script>
+        // （ここに元のJavaScriptコードが続きます）
+    </script>
+</body>
+
+</html>
