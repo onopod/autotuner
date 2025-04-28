@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ギター音検出サンプル</title>
+    <style>
+        canvas {
+            border: 1px solid black;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>ギターの音をリアルタイム検出</h1>
+    <button id="startButton">マイク入力開始</button>
+    <button id="connectButton">オートチューナー接続</button>
+    <div>
+        <p>検出した周波数: <span id="frequency">-</span> Hz</p>
+        <p>推定弦: <span id="stringName">-</span></p>
+        <p>チューニングズレ: <span id="cents">-</span> cents</p>
+    </div>
+    <canvas id="oscilloscope" width="600" height="200"></canvas>
+
+    <script>
+        const startButton = document.getElementById('startButton');
+        const connectButton = document.getElementById('connectButton');
+        const frequencyDisplay = document.getElementById('frequency');
+        const stringDisplay = document.getElementById('stringName');
+        const centsDisplay = document.getElementById('cents');
+        const canvas = document.getElementById('oscilloscope');
+        const canvasCtx = canvas.getContext('2d');
+
+        let audioContext;
+        let analyser;
+        let dataArray;
+        let bluetoothDevice;
+        let bleCharacteristic;
+
+        const strings = {
+            E2: 82.41,
+            A2: 110.00,
+            D3: 146.83,
+            G3: 196.00,
+            B3: 246.94,
+            E4: 329.63
+        };
+
+        startButton.onclick = async () => {
+            startButton.disabled = true;
+            await startAudio();
+        };
+
+        connectButton.onclick = async () => {
+            connectButton.disabled = true;
+            await connectBLE();
+        };
+
+        async function startAudio() {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const source = audioContext.createMediaStreamSource(stream);
+
+            analyser = audioContext.createAnalyser();
+            analyser.fftSize = 2048;
+            dataArray = new Float32Array(analyser.fftSize);
+
+            source.connect(analyser);
+
+            detectPitch();
+        }
+
+        async function connectBLE() {
+            try {
+                bluetoothDevice = await navigator.bluetooth.requestDevice({
+                    filters: [{ services: ['battery_service'] }] // 仮のサービスUUID
+                });
+                const server = await bluetoothDevice.gatt.connect();
+                const service = await server.getPrimaryService('battery_service');
+                bleCharacteristic = await service.getCharacteristic('battery_level');
+            } catch (error) {
+                console.error('BLE接続エラー:', error);
+            }
+        }
+
+        function detectPitch() {
+            analyser.getFloatTimeDomainData(dataArray);
+            const freq = autoCorrelate(dataArray, audioContext.sampleRate);
+
+            drawWaveform();
+
+            if (freq !== -1) {
+                frequencyDisplay.textContent = freq.toFixed(2);
+                const [closestString, diffCents] = findClosestString(freq);
+                stringDisplay.textContent = closestString;
+                centsDisplay.textContent = diffCents.toFixed(2);
+
+                if (bleCharacteristic) {
+                    sendTuningCommand(diffCents);
+                }
+            } else {
+                frequencyDisplay.textContent = '-';
+                stringDisplay.textContent = '-';
+                centsDisplay.textContent = '-';
+            }
+
+            requestAnimationFrame(detectPitch);
+        }
+
+        function drawWaveform() {
+            canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+            canvasCtx.beginPath();
+            const sliceWidth = canvas.width * 1.0 / dataArray.length;
+            let x = 0;
+
+            for (let i = 0; i < dataArray.length; i++) {
+                const v = dataArray[i] * 0.5 + 0.5;
+                const y = v * canvas.height;
+                if (i === 0) {
+                    canvasCtx.moveTo(x, y);
+                } else {
+                    canvasCtx.lineTo(x, y);
+                }
+                x += sliceWidth;
+            }
+
+            canvasCtx.stroke();
+        }
+
+        function findClosestString(freq) {
+            let minDiff = Infinity;
+            let closest = '';
+            for (const [name, standardFreq] of Object.entries(strings)) {
+                const diff = Math.abs(1200 * Math.log2(freq / standardFreq));
+                if (diff < minDiff) {
+                    minDiff = diff;
+                    closest = name;
+                }
+            }
+            const cents = 1200 * Math.log2(freq / strings[closest]);
+            return [closest, cents];
+        }
+
+        async function sendTuningCommand(cents) {
+            let command;
+            if (cents > 5) {
+                command = new Uint8Array([1]); // 正転
+            } else if (cents < -5) {
+                command = new Uint8Array([2]); // 逆転
+            } else {
+                command = new Uint8Array([0]); // 停止
+            }
+
+            try {
+                await bleCharacteristic.writeValue(command);
+            } catch (error) {
+                console.error('BLE送信エラー:', error);
+            }
+        }
+
+        function autoCorrelate(buffer, sampleRate) {
+            const SIZE = buffer.length;
+            let rms = 0;
+            for (let i = 0; i < SIZE; i++) {
+                const val = buffer[i];
+                rms += val * val;
+            }
+            rms = Math.sqrt(rms / SIZE);
+            if (rms < 0.01) return -1;
+
+            let r1 = 0, r2 = SIZE - 1, thres = 0.2;
+            for (let i = 0; i < SIZE / 2; i++) {
+                if (Math.abs(buffer[i]) < thres) { r1 = i; break; }
+            }
+            for (let i = 1; i < SIZE / 2; i++) {
+                if (Math.abs(buffer[SIZE - i]) < thres) { r2 = SIZE - i; break; }
+            }
+
+            const slicedBuffer = buffer.slice(r1, r2);
+            const newSize = slicedBuffer.length;
+
+            let c = new Array(newSize).fill(0);
+            for (let i = 0; i < newSize; i++) {
+                for (let j = 0; j < newSize - i; j++) {
+                    c[i] = c[i] + slicedBuffer[j] * slicedBuffer[j + i];
+                }
+            }
+
+            let d = 0;
+            while (c[d] > c[d + 1]) d++;
+            let maxval = -1, maxpos = -1;
+            for (let i = d; i < newSize; i++) {
+                if (c[i] > maxval) {
+                    maxval = c[i];
+                    maxpos = i;
+                }
+            }
+            if (maxpos === -1) return -1;
+
+            const T = maxpos;
+            const freq = sampleRate / T;
+            return freq;
+        }
+    </script>
+</body>
+
+</html>
