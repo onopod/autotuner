@@ -39,11 +39,11 @@ class CommandCallback : public BLECharacteristicCallbacks
 {
     void onWrite(BLECharacteristic *pCharacteristic)
     {
-        std::string rxValue = pCharacteristic->getValue();
+        String rxValue = pCharacteristic->getValue();
 
         if (rxValue.length() > 0)
         {
-            uint8_t command = rxValue[0];
+            uint8_t command = (uint8_t)rxValue[0];
             Serial.print("受信コマンド: ");
             Serial.println(command);
 

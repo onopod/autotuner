@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="ja">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -14,27 +15,33 @@
       background: #f0f4f8;
       font-family: 'Roboto', sans-serif;
     }
+
     canvas {
-      border:1px solid #ccc;
+      border: 1px solid #ccc;
       background: #fff;
       margin-top: 20px;
       width: 100%;
     }
+
     #tunerDisplay {
       font-size: 32px;
       text-align: center;
       margin: 20px 0;
     }
-    #targetStringDisplay, #volumeDisplay {
+
+    #targetStringDisplay,
+    #volumeDisplay {
       text-align: center;
       margin: 10px 0;
     }
+
     .control-group {
       display: flex;
       flex-direction: column;
       gap: 10px;
       margin-bottom: 20px;
     }
+
     .test-buttons {
       display: flex;
       justify-content: center;
@@ -43,6 +50,7 @@
     }
   </style>
 </head>
+
 <body>
   <h3 class="mdl-typography--display-1">ギターの音をリアルタイム検出</h3>
   <div class="control-group">
@@ -61,228 +69,230 @@
     <button id="stopButton" class="mdl-button mdl-js-button mdl-button--raised">停止</button>
   </div>
 
-<script>
-const startButton = document.getElementById('startButton');
-const connectButton = document.getElementById('connectButton');
-const micSelect = document.getElementById('micSelect');
-const tunerDisplay = document.getElementById('tunerDisplay');
-const targetStringDisplay = document.getElementById('targetStringDisplay');
-const volumeDisplay = document.getElementById('volumeDisplay');
-const forwardButton = document.getElementById('forwardButton');
-const reverseButton = document.getElementById('reverseButton');
-const stopButton = document.getElementById('stopButton');
-const canvas = document.getElementById('oscilloscope');
-const canvasCtx = canvas.getContext('2d');
+  <script>
+    const startButton = document.getElementById('startButton');
+    const connectButton = document.getElementById('connectButton');
+    const micSelect = document.getElementById('micSelect');
+    const tunerDisplay = document.getElementById('tunerDisplay');
+    const targetStringDisplay = document.getElementById('targetStringDisplay');
+    const volumeDisplay = document.getElementById('volumeDisplay');
+    const forwardButton = document.getElementById('forwardButton');
+    const reverseButton = document.getElementById('reverseButton');
+    const stopButton = document.getElementById('stopButton');
+    const canvas = document.getElementById('oscilloscope');
+    const canvasCtx = canvas.getContext('2d');
 
-let audioContext;
-let analyser;
-let dataArray;
-let bluetoothDevice;
-let bleCharacteristic;
+    let audioContext;
+    let analyser;
+    let dataArray;
+    let bluetoothDevice;
+    let bleCharacteristic;
 
-const standardFrequencies = {
-  E2: 82.41,
-  A2: 110.00,
-  D3: 146.83,
-  G3: 196.00,
-  B3: 246.94,
-  E4: 329.63
-};
+    const standardFrequencies = {
+      E2: 82.41,
+      A2: 110.00,
+      D3: 146.83,
+      G3: 196.00,
+      B3: 246.94,
+      E4: 329.63
+    };
 
-const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+    const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
-window.onload = listAudioDevices;
+    window.onload = listAudioDevices;
 
-async function listAudioDevices() {
-  const devices = await navigator.mediaDevices.enumerateDevices();
-  const audioInputs = devices.filter(device => device.kind === 'audioinput');
-  audioInputs.forEach(device => {
-    const option = document.createElement('option');
-    option.value = device.deviceId;
-    option.text = device.label || `Microphone ${micSelect.length + 1}`;
-    micSelect.appendChild(option);
-  });
-}
-
-startButton.onclick = async () => {
-  startButton.disabled = true;
-  await startAudio();
-};
-
-connectButton.onclick = async () => {
-  connectButton.disabled = true;
-  await connectBLE();
-};
-
-forwardButton.onclick = async () => {
-  await manualSendCommand(1);
-};
-
-reverseButton.onclick = async () => {
-  await manualSendCommand(2);
-};
-
-stopButton.onclick = async () => {
-  await manualSendCommand(0);
-};
-
-async function startAudio() {
-  const selectedDeviceId = micSelect.value;
-  audioContext = new (window.AudioContext || window.webkitAudioContext)();
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: { deviceId: selectedDeviceId ? { exact: selectedDeviceId } : undefined }
-  });
-  const source = audioContext.createMediaStreamSource(stream);
-
-  analyser = audioContext.createAnalyser();
-  analyser.fftSize = 2048;
-  dataArray = new Float32Array(analyser.fftSize);
-
-  source.connect(analyser);
-
-  detectPitch();
-}
-
-async function connectBLE() {
-  try {
-    bluetoothDevice = await navigator.bluetooth.requestDevice({
-      filters: [{ services: ['battery_service'] }]
-    });
-    const server = await bluetoothDevice.gatt.connect();
-    const service = await server.getPrimaryService('battery_service');
-    bleCharacteristic = await service.getCharacteristic('battery_level');
-  } catch (error) {
-    console.error('BLE接続エラー:', error);
-  }
-}
-
-async function manualSendCommand(command) {
-  if (!bleCharacteristic) {
-    console.error('BLE未接続');
-    return;
-  }
-  try {
-    await bleCharacteristic.writeValue(new Uint8Array([command]));
-    console.log('コマンド送信:', command);
-  } catch (error) {
-    console.error('コマンド送信エラー:', error);
-  }
-}
-
-function detectPitch() {
-  analyser.getFloatTimeDomainData(dataArray);
-  const freq = autoCorrelate(dataArray, audioContext.sampleRate);
-
-  drawDisplay(freq);
-
-  requestAnimationFrame(detectPitch);
-}
-
-function drawDisplay(freq) {
-  canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
-
-  let rms = Math.sqrt(dataArray.reduce((sum, val) => sum + val * val, 0) / dataArray.length);
-  let volume = Math.min(Math.max(rms * 500, 0), 100);
-  volumeDisplay.textContent = `音量: ${volume.toFixed(0)}`;
-
-  const centerX = canvas.width / 2;
-  const centerY = canvas.height * 0.8;
-
-  if (freq !== -1) {
-    const note = freqToNote(freq);
-    tunerDisplay.textContent = `検出音: ${note}`;
-
-    const [targetString, standardFreq] = findClosestString(freq);
-    targetStringDisplay.textContent = `ターゲット弦: ${targetString}`;
-
-    const cents = 1200 * Math.log2(freq / standardFreq);
-
-    canvasCtx.beginPath();
-    canvasCtx.arc(centerX, centerY, 100, Math.PI, 2 * Math.PI);
-    canvasCtx.strokeStyle = '#ccc';
-    canvasCtx.lineWidth = 10;
-    canvasCtx.stroke();
-
-    canvasCtx.beginPath();
-    const clampedCents = Math.max(-50, Math.min(50, cents));
-    const angle = Math.PI / 2 + (clampedCents / 50) * (Math.PI / 4);
-    const x = centerX + 100 * Math.cos(angle);
-    const y = centerY - 100 * Math.sin(angle);
-    canvasCtx.moveTo(centerX, centerY);
-    canvasCtx.lineTo(x, y);
-    canvasCtx.strokeStyle = '#f00';
-    canvasCtx.lineWidth = 5;
-    canvasCtx.stroke();
-  } else {
-    tunerDisplay.textContent = '検出音: -';
-    targetStringDisplay.textContent = 'ターゲット弦: -';
-  }
-}
-
-function findClosestString(freq) {
-  let closest = null;
-  let minDiff = Infinity;
-  for (const [string, standardFreq] of Object.entries(standardFrequencies)) {
-    const diff = Math.abs(freq - standardFreq);
-    if (diff < minDiff) {
-      minDiff = diff;
-      closest = [string, standardFreq];
+    async function listAudioDevices() {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const audioInputs = devices.filter(device => device.kind === 'audioinput');
+      audioInputs.forEach(device => {
+        const option = document.createElement('option');
+        option.value = device.deviceId;
+        option.text = device.label || `Microphone ${micSelect.length + 1}`;
+        micSelect.appendChild(option);
+      });
     }
-  }
-  return closest;
-}
 
-function freqToNote(freq) {
-  const noteNum = 12 * (Math.log2(freq / 440)) + 69;
-  const rounded = Math.round(noteNum);
-  const octave = Math.floor(rounded / 12) - 1;
-  const noteName = noteStrings[rounded % 12];
-  return `${noteName}${octave}`;
-}
+    startButton.onclick = async () => {
+      startButton.disabled = true;
+      await startAudio();
+    };
 
-function autoCorrelate(buffer, sampleRate) {
-  const SIZE = buffer.length;
-  let rms = 0;
-  for (let i = 0; i < SIZE; i++) {
-    const val = buffer[i];
-    rms += val * val;
-  }
-  rms = Math.sqrt(rms / SIZE);
-  if (rms < 0.01) return -1;
+    connectButton.onclick = async () => {
+      connectButton.disabled = true;
+      await connectBLE();
+    };
 
-  let r1 = 0, r2 = SIZE - 1, thres = 0.2;
-  for (let i = 0; i < SIZE / 2; i++) {
-    if (Math.abs(buffer[i]) < thres) { r1 = i; break; }
-  }
-  for (let i = 1; i < SIZE / 2; i++) {
-    if (Math.abs(buffer[SIZE - i]) < thres) { r2 = SIZE - i; break; }
-  }
+    forwardButton.onclick = async () => {
+      await manualSendCommand(1);
+    };
 
-  const slicedBuffer = buffer.slice(r1, r2);
-  const newSize = slicedBuffer.length;
+    reverseButton.onclick = async () => {
+      await manualSendCommand(2);
+    };
 
-  let c = new Array(newSize).fill(0);
-  for (let i = 0; i < newSize; i++) {
-    for (let j = 0; j < newSize - i; j++) {
-      c[i] = c[i] + slicedBuffer[j] * slicedBuffer[j+i];
+    stopButton.onclick = async () => {
+      await manualSendCommand(0);
+    };
+
+    async function startAudio() {
+      const selectedDeviceId = micSelect.value;
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { deviceId: selectedDeviceId ? { exact: selectedDeviceId } : undefined }
+      });
+      const source = audioContext.createMediaStreamSource(stream);
+
+      analyser = audioContext.createAnalyser();
+      analyser.fftSize = 2048;
+      dataArray = new Float32Array(analyser.fftSize);
+
+      source.connect(analyser);
+
+      detectPitch();
     }
-  }
 
-  let d = 0;
-  while (c[d] > c[d+1]) d++;
-  let maxval = -1, maxpos = -1;
-  for (let i = d; i < newSize; i++) {
-    if (c[i] > maxval) {
-      maxval = c[i];
-      maxpos = i;
+    async function connectBLE() {
+      try {
+        bluetoothDevice = await navigator.bluetooth.requestDevice({
+          filters: [{ services: ['6e400001-b5a3-f393-e0a9-e50e24dcca9e'] }]
+        });
+        const server = await bluetoothDevice.gatt.connect();
+        const service = await server.getPrimaryService('6e400001-b5a3-f393-e0a9-e50e24dcca9e');
+        bleCharacteristic = await service.getCharacteristic('6e400002-b5a3-f393-e0a9-e50e24dcca9e');
+        console.log('BLE接続成功');
+      } catch (error) {
+        console.error('BLE接続エラー:', error);
+      }
     }
-  }
-  if (maxpos === -1) return -1;
 
-  const T = maxpos;
-  const freq = sampleRate / T;
-  return freq;
-}
-</script>
+    async function manualSendCommand(command) {
+      if (!bleCharacteristic) {
+        console.error('BLE未接続');
+        return;
+      }
+      try {
+        await bleCharacteristic.writeValue(new Uint8Array([command]));
+        console.log('コマンド送信:', command);
+      } catch (error) {
+        console.error('コマンド送信エラー:', error);
+      }
+    }
+
+    function detectPitch() {
+      analyser.getFloatTimeDomainData(dataArray);
+      const freq = autoCorrelate(dataArray, audioContext.sampleRate);
+
+      drawDisplay(freq);
+
+      requestAnimationFrame(detectPitch);
+    }
+
+    function drawDisplay(freq) {
+      canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+
+      let rms = Math.sqrt(dataArray.reduce((sum, val) => sum + val * val, 0) / dataArray.length);
+      let volume = Math.min(Math.max(rms * 500, 0), 100);
+      volumeDisplay.textContent = `音量: ${volume.toFixed(0)}`;
+
+      const centerX = canvas.width / 2;
+      const centerY = canvas.height * 0.8;
+
+      if (freq !== -1) {
+        const note = freqToNote(freq);
+        tunerDisplay.textContent = `検出音: ${note}`;
+
+        const [targetString, standardFreq] = findClosestString(freq);
+        targetStringDisplay.textContent = `ターゲット弦: ${targetString}`;
+
+        const cents = 1200 * Math.log2(freq / standardFreq);
+
+        canvasCtx.beginPath();
+        canvasCtx.arc(centerX, centerY, 100, Math.PI, 2 * Math.PI);
+        canvasCtx.strokeStyle = '#ccc';
+        canvasCtx.lineWidth = 10;
+        canvasCtx.stroke();
+
+        canvasCtx.beginPath();
+        const clampedCents = Math.max(-50, Math.min(50, cents));
+        const angle = Math.PI / 2 + (clampedCents / 50) * (Math.PI / 4);
+        const x = centerX + 100 * Math.cos(angle);
+        const y = centerY - 100 * Math.sin(angle);
+        canvasCtx.moveTo(centerX, centerY);
+        canvasCtx.lineTo(x, y);
+        canvasCtx.strokeStyle = '#f00';
+        canvasCtx.lineWidth = 5;
+        canvasCtx.stroke();
+      } else {
+        tunerDisplay.textContent = '検出音: -';
+        targetStringDisplay.textContent = 'ターゲット弦: -';
+      }
+    }
+
+    function findClosestString(freq) {
+      let closest = null;
+      let minDiff = Infinity;
+      for (const [string, standardFreq] of Object.entries(standardFrequencies)) {
+        const diff = Math.abs(freq - standardFreq);
+        if (diff < minDiff) {
+          minDiff = diff;
+          closest = [string, standardFreq];
+        }
+      }
+      return closest;
+    }
+
+    function freqToNote(freq) {
+      const noteNum = 12 * (Math.log2(freq / 440)) + 69;
+      const rounded = Math.round(noteNum);
+      const octave = Math.floor(rounded / 12) - 1;
+      const noteName = noteStrings[rounded % 12];
+      return `${noteName}${octave}`;
+    }
+
+    function autoCorrelate(buffer, sampleRate) {
+      const SIZE = buffer.length;
+      let rms = 0;
+      for (let i = 0; i < SIZE; i++) {
+        const val = buffer[i];
+        rms += val * val;
+      }
+      rms = Math.sqrt(rms / SIZE);
+      if (rms < 0.01) return -1;
+
+      let r1 = 0, r2 = SIZE - 1, thres = 0.2;
+      for (let i = 0; i < SIZE / 2; i++) {
+        if (Math.abs(buffer[i]) < thres) { r1 = i; break; }
+      }
+      for (let i = 1; i < SIZE / 2; i++) {
+        if (Math.abs(buffer[SIZE - i]) < thres) { r2 = SIZE - i; break; }
+      }
+
+      const slicedBuffer = buffer.slice(r1, r2);
+      const newSize = slicedBuffer.length;
+
+      let c = new Array(newSize).fill(0);
+      for (let i = 0; i < newSize; i++) {
+        for (let j = 0; j < newSize - i; j++) {
+          c[i] = c[i] + slicedBuffer[j] * slicedBuffer[j + i];
+        }
+      }
+
+      let d = 0;
+      while (c[d] > c[d + 1]) d++;
+      let maxval = -1, maxpos = -1;
+      for (let i = d; i < newSize; i++) {
+        if (c[i] > maxval) {
+          maxval = c[i];
+          maxpos = i;
+        }
+      }
+      if (maxpos === -1) return -1;
+
+      const T = maxpos;
+      const freq = sampleRate / T;
+      return freq;
+    }
+  </script>
 </body>
+
 </html>
