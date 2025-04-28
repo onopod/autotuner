@@ -24,11 +24,12 @@
         }
 
         #tunerDisplay {
-            font-size: 48px;
+            font-size: 32px;
             text-align: center;
             margin: 20px 0;
         }
 
+        #targetStringDisplay,
         #volumeDisplay {
             text-align: center;
             margin: 10px 0;
@@ -39,14 +40,6 @@
             flex-direction: column;
             gap: 10px;
             margin-bottom: 20px;
-        }
-
-        #stringSelect {
-            margin-bottom: 20px;
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            justify-content: center;
         }
     </style>
 </head>
@@ -59,15 +52,8 @@
             class="mdl-button mdl-js-button mdl-button--raised mdl-button--colored">マイク入力開始</button>
         <button id="connectButton" class="mdl-button mdl-js-button mdl-button--raised">オートチューナー接続</button>
     </div>
-    <div id="stringSelect">
-        <label><input type="radio" name="string" value="E4" checked>1弦 (E4)</label>
-        <label><input type="radio" name="string" value="B3">2弦 (B3)</label>
-        <label><input type="radio" name="string" value="G3">3弦 (G3)</label>
-        <label><input type="radio" name="string" value="D3">4弦 (D3)</label>
-        <label><input type="radio" name="string" value="A2">5弦 (A2)</label>
-        <label><input type="radio" name="string" value="E2">6弦 (E2)</label>
-    </div>
-    <div id="tunerDisplay">-</div>
+    <div id="targetStringDisplay">ターゲット弦: -</div>
+    <div id="tunerDisplay">検出音: -</div>
     <div id="volumeDisplay">音量: -</div>
     <canvas id="oscilloscope" width="600" height="300"></canvas>
 
@@ -76,6 +62,7 @@
         const connectButton = document.getElementById('connectButton');
         const micSelect = document.getElementById('micSelect');
         const tunerDisplay = document.getElementById('tunerDisplay');
+        const targetStringDisplay = document.getElementById('targetStringDisplay');
         const volumeDisplay = document.getElementById('volumeDisplay');
         const canvas = document.getElementById('oscilloscope');
         const canvasCtx = canvas.getContext('2d');
@@ -85,9 +72,7 @@
         let dataArray;
         let bluetoothDevice;
         let bleCharacteristic;
-        let selectedString = "E4";
 
-        const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
         const standardFrequencies = {
             E2: 82.41,
             A2: 110.00,
@@ -97,14 +82,9 @@
             E4: 329.63
         };
 
-        window.onload = () => {
-            listAudioDevices();
-            document.getElementsByName('string').forEach(radio => {
-                radio.addEventListener('change', (e) => {
-                    selectedString = e.target.value;
-                });
-            });
-        };
+        const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+
+        window.onload = listAudioDevices;
 
         async function listAudioDevices() {
             const devices = await navigator.mediaDevices.enumerateDevices();
@@ -178,10 +158,12 @@
 
             if (freq !== -1) {
                 const note = freqToNote(freq);
-                const standardFreq = standardFrequencies[selectedString];
-                const cents = 1200 * Math.log2(freq / standardFreq);
+                tunerDisplay.textContent = `検出音: ${note}`;
 
-                tunerDisplay.textContent = note;
+                const [targetString, standardFreq] = findClosestString(freq);
+                targetStringDisplay.textContent = `ターゲット弦: ${targetString}`;
+
+                const cents = 1200 * Math.log2(freq / standardFreq);
 
                 canvasCtx.beginPath();
                 canvasCtx.arc(centerX, centerY, 100, Math.PI, 2 * Math.PI);
@@ -204,8 +186,22 @@
                     sendTuningCommand(cents);
                 }
             } else {
-                tunerDisplay.textContent = '-';
+                tunerDisplay.textContent = '検出音: -';
+                targetStringDisplay.textContent = 'ターゲット弦: -';
             }
+        }
+
+        function findClosestString(freq) {
+            let closest = null;
+            let minDiff = Infinity;
+            for (const [string, standardFreq] of Object.entries(standardFrequencies)) {
+                const diff = Math.abs(freq - standardFreq);
+                if (diff < minDiff) {
+                    minDiff = diff;
+                    closest = [string, standardFreq];
+                }
+            }
+            return closest;
         }
 
         function freqToNote(freq) {
@@ -214,16 +210,6 @@
             const octave = Math.floor(rounded / 12) - 1;
             const noteName = noteStrings[rounded % 12];
             return `${noteName}${octave}`;
-        }
-
-        function noteToFrequency(note) {
-            const match = note.match(/^([A-G]#?)(\d)$/);
-            if (!match) return 440;
-            const [, n, octaveStr] = match;
-            const octave = parseInt(octaveStr);
-            const idx = noteStrings.indexOf(n);
-            const noteNum = idx + (octave + 1) * 12;
-            return 440 * Math.pow(2, (noteNum - 69) / 12);
         }
 
         async function sendTuningCommand(cents) {
