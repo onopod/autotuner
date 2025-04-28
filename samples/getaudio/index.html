@@ -40,6 +40,14 @@
             gap: 10px;
             margin-bottom: 20px;
         }
+
+        #stringSelect {
+            margin-bottom: 20px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+        }
     </style>
 </head>
 
@@ -50,6 +58,14 @@
         <button id="startButton"
             class="mdl-button mdl-js-button mdl-button--raised mdl-button--colored">マイク入力開始</button>
         <button id="connectButton" class="mdl-button mdl-js-button mdl-button--raised">オートチューナー接続</button>
+    </div>
+    <div id="stringSelect">
+        <label><input type="radio" name="string" value="E4" checked>1弦 (E4)</label>
+        <label><input type="radio" name="string" value="B3">2弦 (B3)</label>
+        <label><input type="radio" name="string" value="G3">3弦 (G3)</label>
+        <label><input type="radio" name="string" value="D3">4弦 (D3)</label>
+        <label><input type="radio" name="string" value="A2">5弦 (A2)</label>
+        <label><input type="radio" name="string" value="E2">6弦 (E2)</label>
     </div>
     <div id="tunerDisplay">-</div>
     <div id="volumeDisplay">音量: -</div>
@@ -69,10 +85,26 @@
         let dataArray;
         let bluetoothDevice;
         let bleCharacteristic;
+        let selectedString = "E4";
 
         const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+        const standardFrequencies = {
+            E2: 82.41,
+            A2: 110.00,
+            D3: 146.83,
+            G3: 196.00,
+            B3: 246.94,
+            E4: 329.63
+        };
 
-        window.onload = listAudioDevices;
+        window.onload = () => {
+            listAudioDevices();
+            document.getElementsByName('string').forEach(radio => {
+                radio.addEventListener('change', (e) => {
+                    selectedString = e.target.value;
+                });
+            });
+        };
 
         async function listAudioDevices() {
             const devices = await navigator.mediaDevices.enumerateDevices();
@@ -146,7 +178,7 @@
 
             if (freq !== -1) {
                 const note = freqToNote(freq);
-                const standardFreq = noteToFrequency(note);
+                const standardFreq = standardFrequencies[selectedString];
                 const cents = 1200 * Math.log2(freq / standardFreq);
 
                 tunerDisplay.textContent = note;
