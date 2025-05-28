@@ -1,80 +1,89 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <title>Pico Motor Controller</title>
+  <meta charset="UTF-8" />
+  <title>BLE UART コマンド送信</title>
 </head>
 <body>
-  <h1>Pico Motor Controller</h1>
+  <h1>BLE UART コマンド送信</h1>
+  <button id="connectBtn">接続</button>
+  <br><br>
 
-  <button id="connect">Connect to Pico</button>
-  <div style="margin-top: 20px;">
-    <button id="forward">Forward (F)</button>
-    <button id="reverse">Reverse (R)</button>
-    <button id="stop">Stop (S)</button>
-  </div>
+  <button data-cmd="M1ON">M1 ON</button>
+  <button data-cmd="M1OFF">M1 OFF</button>
+  <button data-cmd="M2ON">M2 ON</button>
+  <button data-cmd="M2OFF">M2 OFF</button>
 
-  <div id="log" style="white-space: pre-wrap; background: #000; color: #0f0; padding: 10px; margin-top: 20px; height: 300px; overflow-y: scroll;"></div>
+  <pre id="log"></pre>
 
-  <script>
-    let port;
-    let writer;
+<script>
+  const serviceUuid = '6e400001-b5a3-f393-e0a9-e50e24dcca9e'; // Nordic UART Service UUID
+  const txCharacteristicUuid = '6e400002-b5a3-f393-e0a9-e50e24dcca9e'; // TX (write) characteristic UUID
+  const rxCharacteristicUuid = '6e400003-b5a3-f393-e0a9-e50e24dcca9e'; // RX (notify) characteristic UUID
 
-    const connectButton = document.getElementById('connect');
-    const forwardButton = document.getElementById('forward');
-    const reverseButton = document.getElementById('reverse');
-    const stopButton = document.getElementById('stop');
-    const logDiv = document.getElementById('log');
+  let device;
+  let txCharacteristic;
+  let rxCharacteristic;
 
-    connectButton.addEventListener('click', async () => {
-      try {
-        port = await navigator.serial.requestPort();
-        await port.open({ baudRate: 115200 });
+  const logElem = document.getElementById('log');
 
-        const encoder = new TextEncoderStream();
-        const outputDone = encoder.readable.pipeTo(port.writable);
-        writer = encoder.writable.getWriter();
+  function log(text) {
+    logElem.textContent += text + '\n';
+  }
 
-        readLoop();
-        log("Connected!");
-      } catch (err) {
-        console.error('Connection failed:', err);
-      }
+  async function connect() {
+    try {
+      log('デバイスを選択してください...');
+      device = await navigator.bluetooth.requestDevice({
+        filters: [{ services: [serviceUuid] }]
+      });
+
+      const server = await device.gatt.connect();
+      const service = await server.getPrimaryService(serviceUuid);
+
+      txCharacteristic = await service.getCharacteristic(txCharacteristicUuid);
+      rxCharacteristic = await service.getCharacteristic(rxCharacteristicUuid);
+
+      await rxCharacteristic.startNotifications();
+      rxCharacteristic.addEventListener('characteristicvaluechanged', (event) => {
+        const value = new TextDecoder().decode(event.target.value);
+        log('受信: ' + value);
+      });
+
+      log('接続成功');
+
+      device.addEventListener('gattserverdisconnected', () => {
+        log('デバイス切断');
+        device = null;
+        txCharacteristic = null;
+        rxCharacteristic = null;
+      });
+    } catch (error) {
+      log('エラー: ' + error);
+    }
+  }
+
+  async function sendCommand(cmd) {
+    if (!txCharacteristic) {
+      log('未接続です');
+      return;
+    }
+    try {
+      log('送信: ' + cmd);
+      const data = new TextEncoder().encode(cmd + '\n');
+      await txCharacteristic.writeValue(data);
+    } catch (error) {
+      log('送信エラー: ' + error);
+    }
+  }
+
+  document.getElementById('connectBtn').addEventListener('click', connect);
+
+  document.querySelectorAll('button[data-cmd]').forEach(button => {
+    button.addEventListener('click', () => {
+      sendCommand(button.dataset.cmd);
     });
-
-    forwardButton.addEventListener('click', () => sendCommand('F'));
-    reverseButton.addEventListener('click', () => sendCommand('R'));
-    stopButton.addEventListener('click', () => sendCommand('S'));
-
-    async function sendCommand(cmd) {
-      if (!writer) {
-        log("Not connected yet!");
-        return;
-      }
-      await writer.write(cmd);
-      log("Sent: " + cmd);
-    }
-
-    async function readLoop() {
-      const decoder = new TextDecoderStream();
-      const inputDone = port.readable.pipeTo(decoder.writable);
-      const reader = decoder.readable.getReader();
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) {
-          break;
-        }
-        if (value) {
-          log(value);
-        }
-      }
-    }
-
-    function log(text) {
-      logDiv.textContent += text + "\n";
-      logDiv.scrollTop = logDiv.scrollHeight;
-    }
-  </script>
+  });
+</script>
 </body>
 </html>
